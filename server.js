@@ -1,9 +1,12 @@
 const PDFServicesSdk = require("@adobe/pdfservices-node-sdk");
 const fs = require("fs");
+const cors = require("cors");
 require("dotenv").config();
 
 const express = require("express");
 const app = express();
+
+app.use(cors());
 
 const multer = require("multer");
 const path = require("path");
@@ -57,7 +60,7 @@ app.post("/export", upload.single("file"), async (req, res, next) => {
       ("0" + date.getMinutes()).slice(-2) +
       "-" +
       ("0" + date.getSeconds()).slice(-2);
-    return "./docs/export" + dateString + ".docx";
+    return "docs/export" + dateString + ".docx";
   }
 
   try {
@@ -65,6 +68,8 @@ app.post("/export", upload.single("file"), async (req, res, next) => {
       .execute(executionContext)
       .then((result) => result.saveAsFile(outputFilePath))
       .then(() => {
+        const filePath = path.join(__dirname, outputFilePath);
+        res.download(filePath);
         console.log("Export Done");
       })
       .catch((err) => {
@@ -73,9 +78,76 @@ app.post("/export", upload.single("file"), async (req, res, next) => {
   } catch (err) {
     console.error("Error:", err);
   }
+});
 
-  const filePath = path.join(__dirname, outputFilePath)
-  res.sendFile(filePath)
+app.post("/compress", upload.single("file"), async (req, res, next) => {
+  const INPUT = req.file.path;
+  // Initial setup, create credentials instance.
+  const credentials =
+    PDFServicesSdk.Credentials.servicePrincipalCredentialsBuilder()
+      .withClientId(process.env.PDF_SERVICES_CLIENT_ID)
+      .withClientSecret(process.env.PDF_SERVICES_CLIENT_SECRET)
+      .build();
+
+  // Create an ExecutionContext using credentials and create a new operation instance.
+  const executionContext = PDFServicesSdk.ExecutionContext.create(credentials),
+    compressPDF = PDFServicesSdk.CompressPDF,
+    compressPDFOperation = compressPDF.Operation.createNew();
+
+  // Set operation input from a source file.
+  const input = PDFServicesSdk.FileRef.createFromLocalFile(INPUT);
+  compressPDFOperation.setInput(input);
+
+  // Provide any custom configuration options for the operation.
+  const options = new compressPDF.options.CompressPDFOptions.Builder()
+    .withCompressionLevel(
+      PDFServicesSdk.CompressPDF.options.CompressionLevel.HIGH
+    )
+    .build();
+  compressPDFOperation.setOptions(options);
+
+  //Generating a file name
+  let outputFilePath = createOutputFilePath();
+
+  try {
+    await compressPDFOperation
+      .execute(executionContext)
+      .then((result) => result.saveAsFile(outputFilePath))
+      .catch((err) => {
+        if (
+          err instanceof PDFServicesSdk.Error.ServiceApiError ||
+          err instanceof PDFServicesSdk.Error.ServiceUsageError
+        ) {
+          console.log("Exception encountered while executing operation", err);
+        } else {
+          console.log("Exception encountered while executing operation", err);
+        }
+      });
+  } catch (err) {
+    console.error("Error:", err);
+  }
+
+  // Execute the operation and Save the result to the specified location.
+  const filePath = path.join(__dirname, outputFilePath);
+  res.download(filePath);
+
+  //Generates a string containing a directory structure and file name for the output file.
+  function createOutputFilePath() {
+    let date = new Date();
+    let dateString =
+      date.getFullYear() +
+      "-" +
+      ("0" + (date.getMonth() + 1)).slice(-2) +
+      "-" +
+      ("0" + date.getDate()).slice(-2) +
+      "T" +
+      ("0" + date.getHours()).slice(-2) +
+      "-" +
+      ("0" + date.getMinutes()).slice(-2) +
+      "-" +
+      ("0" + date.getSeconds()).slice(-2);
+    return "docs/" + dateString + ".pdf";
+  }
 });
 
 app.listen(PORT, () => {
