@@ -10,6 +10,8 @@ app.use(cors());
 
 const multer = require("multer");
 const path = require("path");
+const autentica = require("./src/autentica");
+const createOutputFilePath = require("./src/createOutputFilePath");
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -29,12 +31,7 @@ app.post("/linearize", upload.single("file"), async (req, res) => {
   const inputFile = req.file.path;
 
   try {
-    // Initial setup, create credentials instance.
-    const credentials =
-      PDFServicesSdk.Credentials.servicePrincipalCredentialsBuilder()
-        .withClientId(process.env.PDF_SERVICES_CLIENT_ID)
-        .withClientSecret(process.env.PDF_SERVICES_CLIENT_SECRET)
-        .build();
+    const credentials = autentica();
 
     // Create an ExecutionContext using credentials and create a new operation instance.
     const executionContext =
@@ -47,7 +44,7 @@ app.post("/linearize", upload.single("file"), async (req, res) => {
     linearizePDFOperation.setInput(input);
 
     //Generating a file name
-    let outputFilePath = createOutputFilePath();
+    let outputFilePath = createOutputFilePath("linearized", ".pdf");
 
     // Execute the operation and Save the result to the specified location.
     try {
@@ -55,8 +52,23 @@ app.post("/linearize", upload.single("file"), async (req, res) => {
         .execute(executionContext)
         .then((result) => result.saveAsFile(outputFilePath))
         .then(() => {
-          const filePath = path.join(__dirname, outputFilePath);
-          res.download(filePath);
+          const outputFile = path.join(__dirname, outputFilePath);
+          res.download(outputFile, () => {
+            fs.unlink(outputFile, (err) => {
+              if (err) {
+                console.error("Erro ao excluir o arquivo:", err);
+              } else {
+                console.log("Arquivo excluído com sucesso");
+              }
+            });
+            fs.unlink(inputFile, (err) => {
+              if (err) {
+                console.error("Erro ao excluir o arquivo:", err);
+              } else {
+                console.log("Arquivo excluído com sucesso");
+              }
+            });
+          });
           console.log("Linearize Done");
         })
         .catch((err) => {
@@ -72,24 +84,6 @@ app.post("/linearize", upload.single("file"), async (req, res) => {
     } catch (err) {
       console.log("Exception encountered while executing operation", err);
     }
-
-    //Generates a string containing a directory structure and file name for the output file.
-    function createOutputFilePath() {
-      let date = new Date();
-      let dateString =
-        date.getFullYear() +
-        "-" +
-        ("0" + (date.getMonth() + 1)).slice(-2) +
-        "-" +
-        ("0" + date.getDate()).slice(-2) +
-        "T" +
-        ("0" + date.getHours()).slice(-2) +
-        "-" +
-        ("0" + date.getMinutes()).slice(-2) +
-        "-" +
-        ("0" + date.getSeconds()).slice(-2);
-      return "docs/linearize" + dateString + ".pdf";
-    }
   } catch (err) {
     console.log("Exception encountered while executing operation", err);
   }
@@ -99,12 +93,7 @@ app.post("/ocr", upload.single("file"), async (req, res) => {
   const inputFile = req.file.path;
 
   try {
-    // Initial setup, create credentials instance.
-    const credentials =
-      PDFServicesSdk.Credentials.servicePrincipalCredentialsBuilder()
-        .withClientId(process.env.PDF_SERVICES_CLIENT_ID)
-        .withClientSecret(process.env.PDF_SERVICES_CLIENT_SECRET)
-        .build();
+    const credentials = autentica();
 
     //Create an ExecutionContext using credentials and create a new operation instance.
     const executionContext =
@@ -125,15 +114,31 @@ app.post("/ocr", upload.single("file"), async (req, res) => {
     ocrOperation.setOptions(options);
 
     //Generating a file name
-    let outputFilePath = createOutputFilePath();
+    let outputFilePath = createOutputFilePath("ocr", "pdf");
 
     // Execute the operation and Save the result to the specified location.
     ocrOperation
       .execute(executionContext)
       .then((result) => result.saveAsFile(outputFilePath))
       .then(() => {
-        const filePath = path.join(__dirname, outputFilePath);
-        res.download(filePath);
+        /* const outputFile = path.join(__dirname, outputFilePath); */
+        const outputFile = outputFilePath
+        res.download(outputFile, () => {
+          fs.unlink(outputFile, (err) => {
+            if (err) {
+              console.error("Erro ao excluir o arquivo:", err);
+            } else {
+              console.log(`${outputFile} excluído com sucesso`);
+            }
+          });
+          fs.unlink(inputFile, (err) => {
+            if (err) {
+              console.error("Erro ao excluir o arquivo:", err);
+            } else {
+              console.log(`${inputFile} excluído com sucesso`);
+            }
+          });
+        });
         console.log("Export Done");
       })
       .catch((err) => {
@@ -146,37 +151,15 @@ app.post("/ocr", upload.single("file"), async (req, res) => {
           console.log("Exception encountered while executing operation", err);
         }
       });
-
-    //Generates a string containing a directory structure and file name for the output file.
-    function createOutputFilePath() {
-      let date = new Date();
-      let dateString =
-        date.getFullYear() +
-        "-" +
-        ("0" + (date.getMonth() + 1)).slice(-2) +
-        "-" +
-        ("0" + date.getDate()).slice(-2) +
-        "T" +
-        ("0" + date.getHours()).slice(-2) +
-        "-" +
-        ("0" + date.getMinutes()).slice(-2) +
-        "-" +
-        ("0" + date.getSeconds()).slice(-2);
-      return "docs/ocr" + dateString + ".pdf";
-    }
   } catch (err) {
     console.log("Exception encountered while executing operation", err);
   }
 });
 
 app.post("/export", upload.single("file"), async (req, res, next) => {
-  const INPUT = req.file.path;
+  const inputFile = req.file.path;
 
-  const credentials =
-    PDFServicesSdk.Credentials.servicePrincipalCredentialsBuilder()
-      .withClientId(process.env.PDF_SERVICES_CLIENT_ID)
-      .withClientSecret(process.env.PDF_SERVICES_CLIENT_SECRET)
-      .build();
+  const credentials = autentica();
 
   const executionContext = PDFServicesSdk.ExecutionContext.create(credentials),
     exportPDF = PDFServicesSdk.ExportPDF,
@@ -185,36 +168,33 @@ app.post("/export", upload.single("file"), async (req, res, next) => {
     );
 
   // Set operation input from a source file
-  const inputPDF = PDFServicesSdk.FileRef.createFromLocalFile(INPUT);
+  const inputPDF = PDFServicesSdk.FileRef.createFromLocalFile(inputFile);
   exportPDFOperation.setInput(inputPDF);
 
-  let outputFilePath = createOutputFilePath();
-  console.log(outputFilePath);
-
-  function createOutputFilePath() {
-    let date = new Date();
-    let dateString =
-      date.getFullYear() +
-      "-" +
-      ("0" + (date.getMonth() + 1)).slice(-2) +
-      "-" +
-      ("0" + date.getDate()).slice(-2) +
-      "T" +
-      ("0" + date.getHours()).slice(-2) +
-      "-" +
-      ("0" + date.getMinutes()).slice(-2) +
-      "-" +
-      ("0" + date.getSeconds()).slice(-2);
-    return "docs/export" + dateString + ".docx";
-  }
+  let outputFilePath = createOutputFilePath("export", "docx");
 
   try {
     await exportPDFOperation
       .execute(executionContext)
       .then((result) => result.saveAsFile(outputFilePath))
       .then(() => {
-        const filePath = path.join(__dirname, outputFilePath);
-        res.download(filePath);
+        const outputFile = path.join(__dirname, outputFilePath);
+        res.download(outputFile, () => {
+          fs.unlink(outputFile, (err) => {
+            if (err) {
+              console.error("Erro ao excluir o arquivo:", err);
+            } else {
+              console.log(`${outputFile} excluído com sucesso`);
+            }
+          });
+          fs.unlink(inputFile, (err) => {
+            if (err) {
+              console.error("Erro ao excluir o arquivo:", err);
+            } else {
+              console.log(`${inputFile} excluído com sucesso`);
+            }
+          });
+        });
         console.log("Export Done");
       })
       .catch((err) => {
@@ -226,21 +206,16 @@ app.post("/export", upload.single("file"), async (req, res, next) => {
 });
 
 app.post("/compress", upload.single("file"), async (req, res, next) => {
-  const INPUT = req.file.path;
-  // Initial setup, create credentials instance.
-  const credentials =
-    PDFServicesSdk.Credentials.servicePrincipalCredentialsBuilder()
-      .withClientId(process.env.PDF_SERVICES_CLIENT_ID)
-      .withClientSecret(process.env.PDF_SERVICES_CLIENT_SECRET)
-      .build();
+  const inputFile = req.file.path;
 
-  // Create an ExecutionContext using credentials and create a new operation instance.
+  const credentials = autentica();
+
   const executionContext = PDFServicesSdk.ExecutionContext.create(credentials),
     compressPDF = PDFServicesSdk.CompressPDF,
     compressPDFOperation = compressPDF.Operation.createNew();
 
   // Set operation input from a source file.
-  const input = PDFServicesSdk.FileRef.createFromLocalFile(INPUT);
+  const input = PDFServicesSdk.FileRef.createFromLocalFile(inputFile);
   compressPDFOperation.setInput(input);
 
   // Provide any custom configuration options for the operation.
@@ -252,7 +227,7 @@ app.post("/compress", upload.single("file"), async (req, res, next) => {
   compressPDFOperation.setOptions(options);
 
   //Generating a file name
-  let outputFilePath = createOutputFilePath();
+  let outputFilePath = createOutputFilePath("optimize", "pdf");
 
   try {
     await compressPDFOperation
@@ -260,8 +235,24 @@ app.post("/compress", upload.single("file"), async (req, res, next) => {
       .then((result) => result.saveAsFile(outputFilePath))
       .then(() => {
         // Execute the operation and Save the result to the specified location.
-        const filePath = path.join(__dirname, outputFilePath);
-        res.download(filePath);
+        const outputFile = path.join(__dirname, outputFilePath);
+        res.download(outputFile, () => {
+          fs.unlink(outputFile, (err) => {
+            if (err) {
+              console.error("Erro ao excluir o arquivo:", err);
+            } else {
+              console.log(`${outputFile} excluído com sucesso`);
+            }
+          });
+          fs.unlink(inputFile, (err) => {
+            if (err) {
+              console.error("Erro ao excluir o arquivo:", err);
+            } else {
+              console.log(`${inputFile} excluído com sucesso`);
+            }
+          });
+        });
+        console.log("Optimize Done");
       })
       .catch((err) => {
         if (
@@ -275,24 +266,6 @@ app.post("/compress", upload.single("file"), async (req, res, next) => {
       });
   } catch (err) {
     console.error("Error:", err);
-  }
-
-  //Generates a string containing a directory structure and file name for the output file.
-  function createOutputFilePath() {
-    let date = new Date();
-    let dateString =
-      date.getFullYear() +
-      "-" +
-      ("0" + (date.getMonth() + 1)).slice(-2) +
-      "-" +
-      ("0" + date.getDate()).slice(-2) +
-      "T" +
-      ("0" + date.getHours()).slice(-2) +
-      "-" +
-      ("0" + date.getMinutes()).slice(-2) +
-      "-" +
-      ("0" + date.getSeconds()).slice(-2);
-    return "docs/" + dateString + ".pdf";
   }
 });
 
