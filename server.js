@@ -1,10 +1,13 @@
 const PDFServicesSdk = require("@adobe/pdfservices-node-sdk");
 const fs = require("fs");
 const cors = require("cors");
+const compression = require("compression");
 require("dotenv").config();
+const uploadMiddleware = require("./src/middlewares/uploadMiddleware.js");
 
 const express = require("express");
 const app = express();
+app.use(compression());
 
 app.use(cors());
 
@@ -122,7 +125,7 @@ app.post("/ocr", upload.single("file"), async (req, res) => {
       .then((result) => result.saveAsFile(outputFilePath))
       .then(() => {
         /* const outputFile = path.join(__dirname, outputFilePath); */
-        const outputFile = outputFilePath
+        const outputFile = outputFilePath;
         res.download(outputFile, () => {
           fs.unlink(outputFile, (err) => {
             if (err) {
@@ -267,6 +270,65 @@ app.post("/compress", upload.single("file"), async (req, res, next) => {
   } catch (err) {
     console.error("Error:", err);
   }
+});
+
+app.post("/combine", uploadMiddleware, async (req, res) => {
+  const files = req.files;
+
+  const credentials = autentica();
+
+  const executionContext = PDFServicesSdk.ExecutionContext.create(credentials),
+    combineFilesOperation = PDFServicesSdk.CombineFiles.Operation.createNew();
+
+  files.forEach((file) => {
+    combineFilesOperation.addInput(
+      PDFServicesSdk.FileRef.createFromLocalFile(file.path)
+    );
+  });
+
+  let outputFilePath = createOutputFilePath("combine", "pdf");
+
+  try {
+    await combineFilesOperation
+      .execute(executionContext)
+      .then((result) => result.saveAsFile(outputFilePath))
+      .then(() => {
+        // Execute the operation and Save the result to the specified location.
+        const outputFile = path.join(__dirname, outputFilePath);
+        res.download(outputFile, () => {
+          fs.unlink(outputFile, (err) => {
+            if (err) {
+              console.error("Erro ao excluir o arquivo:", err);
+            } else {
+              console.log(`${outputFile} excluído com sucesso`);
+            }
+          });
+        });
+        console.log("Combine Done");
+      })
+      .catch((err) => {
+        if (
+          err instanceof PDFServicesSdk.Error.ServiceApiError ||
+          err instanceof PDFServicesSdk.Error.ServiceUsageError
+        ) {
+          console.log("Exception encountered while executing operation", err);
+        } else {
+          console.log("Exception encountered while executing operation", err);
+        }
+      });
+  } catch (error) {
+    console.log(error);
+  }
+
+  files.forEach((file) => {
+    fs.unlink(file.path, (err) => {
+      if (err) {
+        console.error("Erro ao excluir o arquivo:", err);
+      } else {
+        console.log(`${file.path} excluído com sucesso`);
+      }
+    });
+  });
 });
 
 app.listen(PORT, () => {

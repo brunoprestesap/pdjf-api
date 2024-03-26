@@ -13,7 +13,7 @@ function createOutputFilePath(operation, ext) {
       ("0" + date.getMinutes()).slice(-2) +
       "-" +
       ("0" + date.getSeconds()).slice(-2);
-    return `docs\${operation}${dateString}.${ext}`;
+    return `docs\\${operation}${dateString}.${ext}`;
   }
 
   module.exports = createOutputFilePath
